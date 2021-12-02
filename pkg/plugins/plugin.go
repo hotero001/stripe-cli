@@ -158,8 +158,7 @@ func (p *Plugin) Run(args []string) error {
 	pluginDir := p.getPluginInstallPath(version)
 	pluginBinaryPath := filepath.Join(pluginDir, p.Binary)
 
-	colorFlag := fmt.Sprintf("color=%s", Config.Color)
-	cmd := exec.Command(pluginBinaryPath, colorFlag)
+	cmd := exec.Command(pluginBinaryPath)
 
 	handshakeConfig, pluginMap := p.getPluginInterface()
 
