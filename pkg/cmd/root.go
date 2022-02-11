@@ -121,7 +121,7 @@ func Execute(ctx context.Context) {
 				// no matches, show help and exit
 				showSuggestion()
 			} else {
-				// Config.InitConfig()
+				Config.InitConfig()
 				// we found a plugin, so run it
 				fmt.Println(color.Faint(fmt.Sprintf("Installing plugin `%s`...", plugin.Shortname)))
 				err = plugin.Run(updatedCtx, &Config, os.Args[2:])
