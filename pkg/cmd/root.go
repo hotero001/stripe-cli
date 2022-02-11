@@ -18,11 +18,11 @@ import (
 	"github.com/stripe/stripe-cli/pkg/cmd/resource"
 	"github.com/stripe/stripe-cli/pkg/config"
 	"github.com/stripe/stripe-cli/pkg/login"
+	"github.com/stripe/stripe-cli/pkg/plugins"
 	"github.com/stripe/stripe-cli/pkg/stripe"
 	"github.com/stripe/stripe-cli/pkg/useragent"
 	"github.com/stripe/stripe-cli/pkg/validators"
 	"github.com/stripe/stripe-cli/pkg/version"
-	"github.com/stripe/stripe-cli/pkg/plugins"
 )
 
 // Config is the cli configuration for the user
@@ -72,16 +72,16 @@ func sendCommandInvocationEvent(ctx context.Context) {
 }
 
 func showSuggestion() {
-  suggStr := "\nS"
+	suggStr := "\nS"
 
-  suggestions := rootCmd.SuggestionsFor(os.Args[1])
-  if len(suggestions) > 0 {
-    suggStr = fmt.Sprintf(" Did you mean \"%s\"?\nIf not, s", suggestions[0])
-  }
+	suggestions := rootCmd.SuggestionsFor(os.Args[1])
+	if len(suggestions) > 0 {
+		suggStr = fmt.Sprintf(" Did you mean \"%s\"?\nIf not, s", suggestions[0])
+	}
 
-  fmt.Println(fmt.Sprintf("Unknown command \"%s\" for \"%s\".%s"+
-    "ee \"stripe --help\" for a list of available commands.",
-    os.Args[1], rootCmd.CommandPath(), suggStr))
+	fmt.Println(fmt.Sprintf("Unknown command \"%s\" for \"%s\".%s"+
+		"ee \"stripe --help\" for a list of available commands.",
+		os.Args[1], rootCmd.CommandPath(), suggStr))
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -111,22 +111,22 @@ func Execute(ctx context.Context) {
 			}
 
 		case strings.Contains(errString, "unknown command"):
-      // first look for a plugin that matches the unknown command
-      plugin, err := plugins.LookUpPlugin(os.Args[1])
+			// first look for a plugin that matches the unknown command
+			plugin, err := plugins.LookUpPlugin(&Config, os.Args[1])
 
 			if err != nil {
-        // no matches, show help and exit
-        showSuggestion()
-      } else {
-        // we found a plugin, so run it
-        err = plugin.Run(os.Args[2:])
-        if err != nil {
-          fmt.Println(err)
-          os.Exit(1)
-        }
+				// no matches, show help and exit
+				showSuggestion()
+			} else {
+				// we found a plugin, so run it
+				err = plugin.Run(updatedCtx, &Config, os.Args[2:])
+				if err != nil {
+					fmt.Println(err)
+					os.Exit(1)
+				}
 
-        os.Exit(0)
-      }
+				os.Exit(0)
+			}
 
 		default:
 			fmt.Println(err)

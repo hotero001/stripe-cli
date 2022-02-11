@@ -6,12 +6,12 @@ import (
 	hcplugin "github.com/hashicorp/go-plugin"
 )
 
-// currently unused, need to ask tailor team if they'll need this kind of abstraction
+// CmdConfig is currently unused, need to ask tailor team if they'll need this kind of abstraction
 // right now we just pass in the arg strings directly to RunCommand,
 // but perhaps we want to pass specific utilities too
-type CmdConfig struct {
-  args []string
-}
+// type CmdConfig struct {
+// 	args []string
+// }
 
 // Server -----------------------------------------------
 
@@ -33,7 +33,7 @@ type DispatcherRPCServer struct {
 // then we call the internal RunCommand method
 // finally, we then return the response back via the DispatcherRPC interface that the CLI is interacting with
 func (s *DispatcherRPCServer) RunCommand(args []string, resp *string) error {
-  var err error
+	var err error
 	*resp, err = s.Impl.RunCommand(args)
 	return err
 }
@@ -42,12 +42,12 @@ func (s *DispatcherRPCServer) RunCommand(args []string, resp *string) error {
 
 // PluginClient is an implementation that talks over RPC
 type PluginClient struct {
-  client *rpc.Client
+	client *rpc.Client
 }
 
 // RunCommand is the main plugin command that can be invoked remotely by the Stripe CLI
 // we expose the command here for the CLI to call, which then calls the method directly on the RPCServer
-func (g *PluginClient) RunCommand(args []string) (string, error)  {
+func (g *PluginClient) RunCommand(args []string) (string, error) {
 	var resp string
 	err := g.client.Call("Plugin.RunCommand", args, &resp)
 	if err != nil {
@@ -59,7 +59,7 @@ func (g *PluginClient) RunCommand(args []string) (string, error)  {
 
 // Plugin --------------------------------------------------------
 
-// This is the implementation of plugin.Plugin so we can serve/consume this
+// CLIPlugin is the implementation of plugin.Plugin so we can serve/consume this
 //
 // This has two methods: Server must return an RPC server for this plugin
 // type. We construct a DispatcherRPCServer for this.
@@ -74,11 +74,12 @@ type CLIPlugin struct {
 	Impl Dispatcher
 }
 
+// Server returns the rpc server
 func (p *CLIPlugin) Server(*hcplugin.MuxBroker) (interface{}, error) {
 	return &DispatcherRPCServer{Impl: p.Impl}, nil
 }
 
+// Client returns the rpc client
 func (CLIPlugin) Client(b *hcplugin.MuxBroker, c *rpc.Client) (interface{}, error) {
 	return &PluginClient{client: c}, nil
 }
-

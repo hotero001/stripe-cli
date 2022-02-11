@@ -1,8 +1,7 @@
 package cmd
 
 import (
-  "fmt"
-
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/stripe/stripe-cli/pkg/plugins"
@@ -10,7 +9,7 @@ import (
 )
 
 type installCmd struct {
-	cmd              *cobra.Command
+	cmd *cobra.Command
 }
 
 func newInstallCmd() *installCmd {
@@ -28,13 +27,20 @@ func newInstallCmd() *installCmd {
 }
 
 func (ic *installCmd) runInstallCmd(cmd *cobra.Command, args []string) error {
-  plugin, err := plugins.LookUpPlugin(args[0])
-  if err != nil {
-    return err
-  }
+	plugin, err := plugins.LookUpPlugin(&Config, args[0])
+	if err != nil {
+		return err
+	}
 
-  version := plugin.LookUpLatestVersion()
-  err = plugin.Install(version)
+	version := plugin.LookUpLatestVersion()
 
-  return err
+	ctx := withSIGTERMCancel(cmd.Context(), func() {
+		log.WithFields(log.Fields{
+			"prefix": "cmd.installCmd.runInstallCmd",
+		}).Debug("Ctrl+C received, cleaning up...")
+	})
+
+	err = plugin.Install(ctx, &Config, version)
+
+	return err
 }

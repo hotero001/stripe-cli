@@ -1,258 +1,268 @@
 package plugins
 
 import (
-  "bytes"
-  "encoding/hex"
-  "errors"
-  "log"
-  "fmt"
-  "io"
-  "os"
-  "os/exec"
-  "path/filepath"
-  "crypto/sha256"
-  "runtime"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 
 	"github.com/stripe/stripe-cli/pkg/config"
+	"github.com/stripe/stripe-cli/pkg/requests"
+	"github.com/stripe/stripe-cli/pkg/stripe"
 
+	hclog "github.com/hashicorp/go-hclog"
+	hcplugin "github.com/hashicorp/go-plugin"
 	"github.com/spf13/afero"
-  hclog "github.com/hashicorp/go-hclog"
-  hcplugin "github.com/hashicorp/go-plugin"
 )
 
-var Config config.Config
+// constants for plugin
+const (
+	PluginDev   bool   = false
+	PluginsPath string = ""
+)
 
-var PLUGIN_DEV = false
-var PLUGINS_PATH = ""
-
+// Plugin contains the plugin properties
 type Plugin struct {
-  Shortname string
-  Binary    string
-  ChecksumList  []Checksum
-  MagicCookieValue string
+	Shortname        string
+	Binary           string
+	ChecksumList     []Checksum
+	MagicCookieValue string
 }
 
+// PluginList contains a list of plugins
 type PluginList struct {
-  Plugin []Plugin
+	Plugin []Plugin
 }
 
+// Checksum contains the checksum details
 type Checksum struct {
-  Arch    string
-  OS      string
-  Version string
-  Sum     string
+	Arch    string
+	OS      string
+	Version string
+	Sum     string
 }
 
 func (p *Plugin) getPluginInterface() (hcplugin.HandshakeConfig, map[string]hcplugin.Plugin) {
-  handshakeConfig := hcplugin.HandshakeConfig{
-    ProtocolVersion:  1,
-    MagicCookieKey:   fmt.Sprintf("plugin_%s", p.Shortname),
-    MagicCookieValue: p.MagicCookieValue,
-  }
+	handshakeConfig := hcplugin.HandshakeConfig{
+		ProtocolVersion:  1,
+		MagicCookieKey:   fmt.Sprintf("plugin_%s", p.Shortname),
+		MagicCookieValue: p.MagicCookieValue,
+	}
 
-  // pluginMap is the map of interfaces we can dispense from the plugin itself
-  // we just have one called "main" for each of our plugins for now
-  pluginMap := map[string]hcplugin.Plugin{
-    "main": &CLIPlugin{},
-  }
+	// pluginMap is the map of interfaces we can dispense from the plugin itself
+	// we just have one called "main" for each of our plugins for now
+	pluginMap := map[string]hcplugin.Plugin{
+		"main": &CLIPlugin{},
+	}
 
-  return handshakeConfig, pluginMap
+	return handshakeConfig, pluginMap
 }
 
-func (p *Plugin) getPluginInstallPath(version string) string {
-  pluginsDir := getPluginsDir()
-  pluginPath := filepath.Join(pluginsDir, p.Shortname, version)
+func (p *Plugin) getPluginInstallPath(config *config.Config, version string) string {
+	pluginsDir := getPluginsDir(config)
+	pluginPath := filepath.Join(pluginsDir, p.Shortname, version)
 
-  return pluginPath
+	return pluginPath
 }
 
 func (p *Plugin) getChecksum(version string) ([]byte, error) {
-  opsystem := runtime.GOOS
-  arch := runtime.GOARCH
+	opsystem := runtime.GOOS
+	arch := runtime.GOARCH
 
-  var expectedSum string
-  for _, pkg := range p.ChecksumList {
-    if pkg.OS == opsystem && pkg.Arch == arch && pkg.Version == version {
-      expectedSum = pkg.Sum
-    }
-  }
-
-  if expectedSum == "" {
-    return nil, errors.New(fmt.Sprintf("could not locate a valid checksum for %s version %s", p.Shortname, version))
-  }
-
-  decoded, err := hex.DecodeString(expectedSum)
-	if err != nil {
-		return nil, errors.New(fmt.Sprintf("could not decode checksum for %s version %s", p.Shortname, version))
+	var expectedSum string
+	for _, pkg := range p.ChecksumList {
+		if pkg.OS == opsystem && pkg.Arch == arch && pkg.Version == version {
+			expectedSum = pkg.Sum
+		}
 	}
 
-  return decoded, nil
+	if expectedSum == "" {
+		return nil, fmt.Errorf("could not locate a valid checksum for %s version %s", p.Shortname, version)
+	}
+
+	decoded, err := hex.DecodeString(expectedSum)
+	if err != nil {
+		return nil, fmt.Errorf("could not decode checksum for %s version %s", p.Shortname, version)
+	}
+
+	return decoded, nil
 }
 
+// LookUpLatestVersion gets latest CLI version
 // note: assumes versions are listed in asc order
 func (p *Plugin) LookUpLatestVersion() string {
-  opsystem := runtime.GOOS
-  arch := runtime.GOARCH
+	opsystem := runtime.GOOS
+	arch := runtime.GOARCH
 
-  var version string
-  for _, pkg := range p.ChecksumList {
-    if pkg.OS == opsystem && pkg.Arch == arch {
-      version = pkg.Version
-    }
-  }
-
-  return version
-}
-
-func (p *Plugin) Install(version string) error {
-  return errors.New("this command is not yet supported")
-
-  pluginDir := p.getPluginInstallPath(version)
-  pluginFilePath := filepath.Join(pluginDir, p.Binary)
-
-  // URL TBD
-	repoBaseURL := ""
-	pluginDownloadURL := fmt.Sprintf("%s/%s/%s/%s/%s/%s", repoBaseURL, p.Shortname, version, runtime.GOOS, runtime.GOARCH, p.Binary)
-
-  binary, err := FetchRemoteResource(pluginDownloadURL)
-	if err != nil {
-    return err
+	var version string
+	for _, pkg := range p.ChecksumList {
+		if pkg.OS == opsystem && pkg.Arch == arch {
+			version = pkg.Version
+		}
 	}
 
-  err = p.verifyChecksum(binary, version)
+	return version
+}
+
+// Install installs the plugin of the given version
+func (p *Plugin) Install(ctx context.Context, config *config.Config, version string) error {
+	pluginDir := p.getPluginInstallPath(config, version)
+	pluginFilePath := filepath.Join(pluginDir, p.Binary)
+
+	apiKey, err := config.Profile.GetAPIKey(false)
 	if err != nil {
-    return err
+		return err
+	}
+
+	pluginData := requests.GetPluginData(ctx, stripe.DefaultAPIBaseURL, stripe.DefaultAPIVersion, apiKey, &config.Profile)
+	pluginDownloadURL := fmt.Sprintf("%s/%s/%s/%s/%s/%s", pluginData.PluginBaseURL, p.Shortname, version, runtime.GOOS, runtime.GOARCH, p.Binary)
+
+	binary, err := FetchRemoteResource(pluginDownloadURL)
+	if err != nil {
+		return err
+	}
+
+	err = p.verifyChecksum(binary, version)
+	if err != nil {
+		return err
 	}
 
 	fs := afero.NewOsFs()
 
-  err = fs.MkdirAll(pluginDir, 0755)
+	err = fs.MkdirAll(pluginDir, 0755)
 	if err != nil {
-    return err
+		return err
 	}
 
-  file, err := fs.Create(pluginFilePath)
+	file, err := fs.Create(pluginFilePath)
 	if err != nil {
-    return err
+		return err
 	}
 
-  err = fs.Chmod(pluginFilePath, 0755)
+	err = fs.Chmod(pluginFilePath, 0755)
 	if err != nil {
-    return err
+		return err
 	}
 
-  _, err = io.Copy(file, binary)
+	_, err = io.Copy(file, binary)
 	if err != nil {
-    return err
+		return err
 	}
 
 	defer file.Close()
 
-  return nil
+	return nil
 }
 
-// this is to be used during installation only
+// verifyChecksum is to be used during installation only
 // hcplugins takes care of the boot time verification for us
 func (p *Plugin) verifyChecksum(binary io.Reader, version string) error {
-  expectedSum, err := p.getChecksum(version)
+	expectedSum, err := p.getChecksum(version)
 	if err != nil {
-    return err
+		return err
 	}
 
-  hash := sha256.New()
-  _, err = io.Copy(hash, binary);
-  if err != nil {
-    return err
-  }
-
-  actualSum := hash.Sum(nil)
-  if bytes.Compare(actualSum, expectedSum) != 0 {
-    return errors.New(fmt.Sprintf("installed plugin %s could not be verified, aborting installation", p.Shortname))
+	hash := sha256.New()
+	_, err = io.Copy(hash, binary)
+	if err != nil {
+		return err
 	}
 
-  return nil
+	actualSum := hash.Sum(nil)
+	if !bytes.Equal(actualSum, expectedSum) {
+		return fmt.Errorf("installed plugin %s could not be verified, aborting installation", p.Shortname)
+	}
+
+	return nil
 }
 
-// RunPlugin boots up the binary and then sends the command to it via RPC
-func (p *Plugin) Run(args []string) error {
-  var version string
-  // first perform a naive glob of the plugins/name dir for an existing version
-  localPluginDir := filepath.Join(getPluginsDir(), p.Shortname, "*.*.*")
-  existingLocalPlugin, err := filepath.Glob(localPluginDir)
-  if err != nil {
-    return err
-  }
+// Run boots up the binary and then sends the command to it via RPC
+func (p *Plugin) Run(ctx context.Context, config *config.Config, args []string) error {
+	var version string
+	// first perform a naive glob of the plugins/name dir for an existing version
+	localPluginDir := filepath.Join(getPluginsDir(config), p.Shortname, "*.*.*")
+	existingLocalPlugin, err := filepath.Glob(localPluginDir)
+	if err != nil {
+		return err
+	}
 
-  if len(existingLocalPlugin) == 0 {
-    // if none exist, then we should install it first (latest version)
-    version = p.LookUpLatestVersion()
-    err := p.Install(version)
-    if err != nil {
-      return err
-    }
-  } else {
-    version = filepath.Base(existingLocalPlugin[0])
-  }
+	if len(existingLocalPlugin) == 0 {
+		// if none exist, then we should install it first (latest version)
+		version = p.LookUpLatestVersion()
+		err := p.Install(ctx, config, version)
+		if err != nil {
+			return err
+		}
+	} else {
+		version = filepath.Base(existingLocalPlugin[0])
+	}
 
-  pluginDir := p.getPluginInstallPath(version)
-  pluginBinaryPath := filepath.Join(pluginDir, p.Binary)
+	pluginDir := p.getPluginInstallPath(config, version)
+	pluginBinaryPath := filepath.Join(pluginDir, p.Binary)
 
-  cmd := exec.Command(pluginBinaryPath)
-  handshakeConfig, pluginMap := p.getPluginInterface()
+	cmd := exec.Command(pluginBinaryPath)
+	handshakeConfig, pluginMap := p.getPluginInterface()
 
-  pluginLogger := hclog.New(&hclog.LoggerOptions{
-    Name:  fmt.Sprintf("[plugin:%s]", p.Shortname),
-    Level: hclog.LevelFromString("INFO"),
-  })
+	pluginLogger := hclog.New(&hclog.LoggerOptions{
+		Name:  fmt.Sprintf("[plugin:%s]", p.Shortname),
+		Level: hclog.LevelFromString("INFO"),
+	})
 
-  clientConfig := &hcplugin.ClientConfig{
+	clientConfig := &hcplugin.ClientConfig{
 		HandshakeConfig: handshakeConfig,
 		Plugins:         pluginMap,
 		Cmd:             cmd,
-    SyncStdout:      os.Stdout,
-    SyncStderr:      os.Stderr,
-    Logger:          pluginLogger,
+		SyncStdout:      os.Stdout,
+		SyncStderr:      os.Stderr,
+		Logger:          pluginLogger,
 	}
 
-  if !PLUGIN_DEV {
-    sum, err := p.getChecksum(version)
-    if err != nil {
-      return err
-    }
+	if !PluginDev {
+		sum, err := p.getChecksum(version)
+		if err != nil {
+			return err
+		}
 
-    clientConfig.SecureConfig = &hcplugin.SecureConfig{
-      Checksum: sum,
-      Hash: sha256.New(),
-    }
-  }
+		clientConfig.SecureConfig = &hcplugin.SecureConfig{
+			Checksum: sum,
+			Hash:     sha256.New(),
+		}
+	}
 
-  // start by launching the plugin process / binary
+	// start by launching the plugin process / binary
 	client := hcplugin.NewClient(clientConfig)
-
-	defer client.Kill()
 
 	// Connect via RPC to the plugin
 	rpcClient, err := client.Client()
 	if err != nil {
-    // TODO: handle this fatal
+		// TODO: handle this fatal
 		log.Fatal(err)
 	}
+
+	defer client.Kill()
 
 	// Request the plugin's main interface
 	raw, err := rpcClient.Dispense("main")
 	if err != nil {
-    return err
+		return err
 	}
 
-  // get the native golang interface for the plugin so that we can call it directly
+	// get the native golang interface for the plugin so that we can call it directly
 	dispatcher := raw.(Dispatcher)
 
-  // run the command that the user specified via args
-  _, err = dispatcher.RunCommand(args)
+	// run the command that the user specified via args
+	_, err = dispatcher.RunCommand(args)
 
-  if (err != nil) {
-    return err
-  }
+	if err != nil {
+		return err
+	}
 
-  return nil
+	return nil
 }
