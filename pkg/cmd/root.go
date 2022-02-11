@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/stripe/stripe-cli/pkg/ansi"
 	"github.com/stripe/stripe-cli/pkg/cmd/resource"
 	"github.com/stripe/stripe-cli/pkg/config"
 	"github.com/stripe/stripe-cli/pkg/login"
@@ -29,6 +30,7 @@ import (
 var Config config.Config
 
 var fs = afero.NewOsFs()
+var color = ansi.Color(os.Stdout)
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -94,6 +96,7 @@ func Execute(ctx context.Context) {
 	rootCmd.SetVersionTemplate(version.Template)
 	if err := rootCmd.ExecuteContext(updatedCtx); err != nil {
 		errString := err.Error()
+
 		isLoginRequiredError := errString == validators.ErrAPIKeyNotConfigured.Error() || errString == validators.ErrDeviceNameNotConfigured.Error()
 
 		switch {
@@ -118,10 +121,16 @@ func Execute(ctx context.Context) {
 				// no matches, show help and exit
 				showSuggestion()
 			} else {
+				// Config.InitConfig()
 				// we found a plugin, so run it
+				fmt.Println(color.Faint(fmt.Sprintf("Installing plugin `%s`...", plugin.Shortname)))
 				err = plugin.Run(updatedCtx, &Config, os.Args[2:])
 				if err != nil {
-					fmt.Println(err)
+					if err == validators.ErrAPIKeyNotConfigured {
+						fmt.Println(color.Red("Install failed due to API key not configured. Please run `stripe login` or specify the `--api-key`"))
+					} else {
+						fmt.Println(err)
+					}
 					os.Exit(1)
 				}
 
@@ -143,6 +152,7 @@ func Execute(ctx context.Context) {
 }
 
 func init() {
+	fmt.Println("Running init...")
 	cobra.OnInitialize(Config.InitConfig)
 
 	rootCmd.PersistentFlags().StringVar(&Config.Profile.APIKey, "api-key", "", "Your API key to use for the command")
