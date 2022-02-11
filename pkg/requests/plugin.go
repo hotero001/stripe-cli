@@ -14,7 +14,7 @@ type PluginData struct {
 }
 
 // GetPluginData returns the plugin download information
-func GetPluginData(ctx context.Context, baseURL, apiVersion, apiKey string, profile *config.Profile) PluginData {
+func GetPluginData(ctx context.Context, baseURL, apiVersion, apiKey string, profile *config.Profile) (PluginData, error) {
 	params := &RequestParameters{
 		data:    []string{},
 		version: apiVersion,
@@ -27,9 +27,13 @@ func GetPluginData(ctx context.Context, baseURL, apiVersion, apiKey string, prof
 		APIBaseURL:     baseURL,
 	}
 	// /v1/stripecli/get-plugin-url
-	resp, _ := base.MakeRequest(ctx, apiKey, "/v1/stripcli/get-plugin-url", params, true)
+	resp, err := base.MakeRequest(ctx, apiKey, "/v1/stripecli/get-plugin-url", params, true)
+	if err != nil {
+		return PluginData{}, err
+	}
+
 	data := PluginData{}
 	json.Unmarshal(resp, &data)
 
-	return data
+	return data, nil
 }

@@ -152,7 +152,6 @@ func Execute(ctx context.Context) {
 }
 
 func init() {
-	fmt.Println("Running init...")
 	cobra.OnInitialize(Config.InitConfig)
 
 	rootCmd.PersistentFlags().StringVar(&Config.Profile.APIKey, "api-key", "", "Your API key to use for the command")

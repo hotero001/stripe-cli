@@ -124,7 +124,11 @@ func (p *Plugin) Install(ctx context.Context, config *config.Config, version str
 		return err
 	}
 
-	pluginData := requests.GetPluginData(ctx, stripe.DefaultAPIBaseURL, stripe.DefaultAPIVersion, apiKey, &config.Profile)
+	pluginData, err := requests.GetPluginData(ctx, stripe.DefaultAPIBaseURL, stripe.DefaultAPIVersion, apiKey, &config.Profile)
+	if err != nil {
+		return err
+	}
+
 	pluginDownloadURL := fmt.Sprintf("%s/%s/%s/%s/%s/%s", pluginData.PluginBaseURL, p.Shortname, version, runtime.GOOS, runtime.GOARCH, p.Binary)
 
 	binary, err := FetchRemoteResource(pluginDownloadURL)
@@ -214,7 +218,7 @@ func (p *Plugin) Run(ctx context.Context, config *config.Config, args []string) 
 		}
 	}
 
-	pluginDir := p.getPluginInstallPath(version)
+	pluginDir := p.getPluginInstallPath(config, version)
 	pluginBinaryPath := filepath.Join(pluginDir, p.Binary)
 
 	cmd := exec.Command(pluginBinaryPath)
