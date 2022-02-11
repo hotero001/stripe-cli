@@ -9,17 +9,17 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-
 	"github.com/spf13/afero"
 
 	"github.com/stripe/stripe-cli/pkg/config"
 )
 
+// getPluginsDir computes where plugins are installed locally
 func getPluginsDir(config *config.Config) string {
 	var pluginsDir string
 
-	if PluginsPath != "" {
-		pluginsDir = PluginsPath
+	if os.Getenv("PLUGINS_PATH") != "" {
+		pluginsDir = os.Getenv("PLUGINS_PATH")
 	} else {
 		configPath := config.GetConfigFolder(os.Getenv("XDG_CONFIG_HOME"))
 		pluginsDir = filepath.Join(configPath, "plugins")
@@ -28,7 +28,7 @@ func getPluginsDir(config *config.Config) string {
 	return pluginsDir
 }
 
-// GetPluginList builds a list of allowed plugins to be installed and run by the CLI
+// GetPluginsList builds a list of allowed plugins to be installed and run by the CLI
 func GetPluginList(config *config.Config) (PluginList, error) {
 	var pluginList PluginList
 	configPath := config.GetConfigFolder(os.Getenv("XDG_CONFIG_HOME"))

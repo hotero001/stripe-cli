@@ -32,7 +32,7 @@ const (
 type Plugin struct {
 	Shortname        string
 	Binary           string
-	ChecksumList     []Checksum
+	Release          []Release
 	MagicCookieValue string
 }
 
@@ -41,14 +41,15 @@ type PluginList struct {
 	Plugin []Plugin
 }
 
-// Checksum contains the checksum details
-type Checksum struct {
+// Release is the type that holds release data for a specific build of a plugin
+type Release struct {
 	Arch    string
 	OS      string
 	Version string
 	Sum     string
 }
 
+// getPluginInterface computes the correct metadata needed for starting the hcplugin client
 func (p *Plugin) getPluginInterface() (hcplugin.HandshakeConfig, map[string]hcplugin.Plugin) {
 	handshakeConfig := hcplugin.HandshakeConfig{
 		ProtocolVersion:  1,
@@ -65,6 +66,7 @@ func (p *Plugin) getPluginInterface() (hcplugin.HandshakeConfig, map[string]hcpl
 	return handshakeConfig, pluginMap
 }
 
+// getPluginInstallPath computes the absolute path of a specific plugin version's installation dir
 func (p *Plugin) getPluginInstallPath(config *config.Config, version string) string {
 	pluginsDir := getPluginsDir(config)
 	pluginPath := filepath.Join(pluginsDir, p.Shortname, version)
@@ -72,14 +74,15 @@ func (p *Plugin) getPluginInstallPath(config *config.Config, version string) str
 	return pluginPath
 }
 
+// getChecksum does what it says on the tin - it returns the checksum for a specific plugin version
 func (p *Plugin) getChecksum(version string) ([]byte, error) {
 	opsystem := runtime.GOOS
 	arch := runtime.GOARCH
 
 	var expectedSum string
-	for _, pkg := range p.ChecksumList {
-		if pkg.OS == opsystem && pkg.Arch == arch && pkg.Version == version {
-			expectedSum = pkg.Sum
+	for _, release := range p.Release {
+		if release.OS == opsystem && release.Arch == arch && release.Version == version {
+			expectedSum = release.Sum
 		}
 	}
 
@@ -95,14 +98,14 @@ func (p *Plugin) getChecksum(version string) ([]byte, error) {
 	return decoded, nil
 }
 
-// LookUpLatestVersion gets latest CLI version
-// note: assumes versions are listed in asc order
+// LookUpLatestVersion iterates through each version of a plugin and returns the latest
+// note: assumes versions are listed in asc order, might need to be more robust in future
 func (p *Plugin) LookUpLatestVersion() string {
 	opsystem := runtime.GOOS
 	arch := runtime.GOARCH
 
 	var version string
-	for _, pkg := range p.ChecksumList {
+	for _, pkg := range p.Release {
 		if pkg.OS == opsystem && pkg.Arch == arch {
 			version = pkg.Version
 		}
@@ -186,28 +189,36 @@ func (p *Plugin) verifyChecksum(binary io.Reader, version string) error {
 // Run boots up the binary and then sends the command to it via RPC
 func (p *Plugin) Run(ctx context.Context, config *config.Config, args []string) error {
 	var version string
-	// first perform a naive glob of the plugins/name dir for an existing version
-	localPluginDir := filepath.Join(getPluginsDir(config), p.Shortname, "*.*.*")
-	existingLocalPlugin, err := filepath.Glob(localPluginDir)
-	if err != nil {
-		return err
-	}
 
-	if len(existingLocalPlugin) == 0 {
-		// if none exist, then we should install it first (latest version)
-		version = p.LookUpLatestVersion()
-		err := p.Install(ctx, config, version)
+	if os.Getenv("PLUGINS_PATH") != "" {
+		version = "master"
+	} else {
+		// first perform a naive glob of the plugins/name dir for an existing version
+		localPluginDir := filepath.Join(getPluginsDir(config), p.Shortname, "*.*.*")
+		existingLocalPlugin, err := filepath.Glob(localPluginDir)
 		if err != nil {
 			return err
 		}
-	} else {
-		version = filepath.Base(existingLocalPlugin[0])
+
+		// if plugin is not installed locally, then we should return an error
+		// (installation step coming in phase 2)
+		if len(existingLocalPlugin) == 0 {
+			// if none exist, then we should install it first (latest version)
+			version = p.LookUpLatestVersion()
+			err := p.Install(ctx, config, version)
+			if err != nil {
+				return err
+			}
+		} else {
+			version = filepath.Base(existingLocalPlugin[0])
+		}
 	}
 
-	pluginDir := p.getPluginInstallPath(config, version)
+	pluginDir := p.getPluginInstallPath(version)
 	pluginBinaryPath := filepath.Join(pluginDir, p.Binary)
 
 	cmd := exec.Command(pluginBinaryPath)
+
 	handshakeConfig, pluginMap := p.getPluginInterface()
 
 	pluginLogger := hclog.New(&hclog.LoggerOptions{
@@ -224,16 +235,14 @@ func (p *Plugin) Run(ctx context.Context, config *config.Config, args []string) 
 		Logger:          pluginLogger,
 	}
 
-	if !PluginDev {
-		sum, err := p.getChecksum(version)
-		if err != nil {
-			return err
-		}
+	sum, err := p.getChecksum(version)
+	if err != nil {
+		return err
+	}
 
-		clientConfig.SecureConfig = &hcplugin.SecureConfig{
-			Checksum: sum,
-			Hash:     sha256.New(),
-		}
+	clientConfig.SecureConfig = &hcplugin.SecureConfig{
+		Checksum: sum,
+		Hash:     sha256.New(),
 	}
 
 	// start by launching the plugin process / binary
