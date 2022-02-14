@@ -2,7 +2,7 @@ package plugins
 
 import (
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -68,6 +68,7 @@ func LookUpPlugin(config *config.Config, pluginName string) (Plugin, error) {
 func RefreshPluginManifest(config *config.Config) error {
 	// final URL TBD
 	body, err := FetchRemoteResource("")
+
 	if err != nil {
 		return err
 	}
@@ -76,14 +77,8 @@ func RefreshPluginManifest(config *config.Config) error {
 	pluginManifestPath := filepath.Join(configPath, "plugins.toml")
 	fs := afero.NewOsFs()
 
-	file, err := fs.Create(pluginManifestPath)
-	if err != nil {
-		return err
-	}
+	err = afero.WriteFile(fs, pluginManifestPath, body, 0755)
 
-	defer file.Close()
-
-	_, err = io.Copy(file, body)
 	if err != nil {
 		return err
 	}
@@ -92,7 +87,7 @@ func RefreshPluginManifest(config *config.Config) error {
 }
 
 // FetchRemoteResource returns the remote resource body
-func FetchRemoteResource(url string) (io.Reader, error) {
+func FetchRemoteResource(url string) ([]byte, error) {
 	client := http.Client{
 		CheckRedirect: func(r *http.Request, via []*http.Request) error {
 			r.URL.Opaque = r.URL.Path
@@ -112,5 +107,11 @@ func FetchRemoteResource(url string) (io.Reader, error) {
 
 	defer resp.Body.Close()
 
-	return resp.Body, nil
+	body, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return body, nil
 }

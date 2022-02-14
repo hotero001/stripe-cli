@@ -131,12 +131,14 @@ func (p *Plugin) Install(ctx context.Context, config *config.Config, version str
 
 	pluginDownloadURL := fmt.Sprintf("%s/%s/%s/%s/%s/%s", pluginData.PluginBaseURL, p.Shortname, version, runtime.GOOS, runtime.GOARCH, p.Binary)
 
-	binary, err := FetchRemoteResource(pluginDownloadURL)
+	body, err := FetchRemoteResource(pluginDownloadURL)
+	reader := bytes.NewReader(body)
+
 	if err != nil {
 		return err
 	}
 
-	err = p.verifyChecksum(binary, version)
+	err = p.verifyChecksum(reader, version)
 	if err != nil {
 		return err
 	}
@@ -148,22 +150,11 @@ func (p *Plugin) Install(ctx context.Context, config *config.Config, version str
 		return err
 	}
 
-	file, err := fs.Create(pluginFilePath)
+	err = afero.WriteFile(fs, pluginFilePath, body, 0755)
+
 	if err != nil {
 		return err
 	}
-
-	err = fs.Chmod(pluginFilePath, 0755)
-	if err != nil {
-		return err
-	}
-
-	_, err = io.Copy(file, binary)
-	if err != nil {
-		return err
-	}
-
-	defer file.Close()
 
 	return nil
 }
