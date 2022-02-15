@@ -27,7 +27,7 @@ func newInstallCmd() *installCmd {
 }
 
 func (ic *installCmd) runInstallCmd(cmd *cobra.Command, args []string) error {
-	plugin, err := plugins.LookUpPlugin(&Config, args[0])
+	plugin, err := plugins.LookUpPlugin(cmd.Context(), &Config, args[0])
 	if err != nil {
 		return err
 	}

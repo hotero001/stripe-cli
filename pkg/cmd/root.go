@@ -115,7 +115,7 @@ func Execute(ctx context.Context) {
 
 		case strings.Contains(errString, "unknown command"):
 			// first look for a plugin that matches the unknown command
-			plugin, err := plugins.LookUpPlugin(&Config, os.Args[1])
+			plugin, err := plugins.LookUpPlugin(ctx, &Config, os.Args[1])
 
 			if err != nil {
 				// no matches, show help and exit
